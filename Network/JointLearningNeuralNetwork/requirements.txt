@@ -3,3 +3,11 @@ numpy==1.21.6
 opencv-python
 Pillow==9.3.0
 tensorflow==2.10.1
+
+# For hand mesh generation (generate_hand_mesh.py)
+scipy
+requests
+
+# For visualization (visualize_mesh.py)
+matplotlib
+trimesh
