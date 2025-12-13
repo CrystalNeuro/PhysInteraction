@@ -2,6 +2,7 @@
 
 - <a href="#introduction">Introduction</a>
 - <a href="#setup">Setup</a>
+- <a href="#linux-setup">Linux Setup (Python Only)</a>
 - <a href="#runtime">Runtime</a>
 - <a href="#hand calibration">Hand Calibration</a>
 - <a href="#bibtex">Bibtex</a>
@@ -114,6 +115,112 @@ This is the code repository for papers:
     - Download: https://github.com/IntelRealSense/librealsense/releases
 - generate Visual Studio project
 - open Visual Studio project, select the `Release` and `x64` configuration and  set `entry` as the startup project
+
+## Linux Setup (Python Only)
+
+This section describes how to run the neural networks and generate 3D hand meshes on **Linux** without the C++ code.
+
+### Requirements
+
+- Linux (tested on Ubuntu)
+- Python 3.8+
+- CUDA 10.0+ with cuDNN
+- GPU with ≥12GB VRAM
+
+### Step 1: Install Dependencies
+
+```bash
+cd Network/JointLearningNeuralNetwork
+pip install -r requirements.txt
+pip install scipy requests
+```
+
+> **Note**: This fork includes TensorFlow 2.x compatibility fixes. The original code was written for TensorFlow 1.x.
+
+### Step 2: Download Pre-trained Models
+
+Download the pre-trained networks from [Google Drive](https://drive.google.com/file/d/1wDdBegEpRqFUs0x_9zV6Rm4-Mk_Yajs3/view?usp=sharing), then extract:
+
+```bash
+# Extract Network.zip to get:
+# - Network/JointLearningNeuralNetwork/model/
+# - Network/LSTMPose/exp/
+unzip Network.zip
+```
+
+### Step 3: Start the Inference Server
+
+```bash
+cd Network/JointLearningNeuralNetwork
+python inference_server.py --gpu 0
+```
+
+The server starts on port **8080** and provides:
+- **Input**: Depth image (240×320, 16-bit PNG)
+- **Output**: 21 hand joint positions + segmentation mask
+
+### Step 4: Generate 3D Hand Mesh
+
+In a new terminal, run:
+
+```bash
+cd Network/JointLearningNeuralNetwork
+
+# Generate hand mesh from depth image
+python generate_hand_mesh.py --depth_image your_depth.png --output hand_mesh.obj
+```
+
+**Arguments:**
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--depth_image` | Input depth image path | `org_depth_img_init.png` |
+| `--output` | Output OBJ file path | `hand_mesh.obj` |
+| `--mano_path` | Path to MANO model JSON | Auto-detected |
+| `--server_url` | Inference server URL | `http://127.0.0.1:8080` |
+
+**Output Files:**
+- `hand_mesh.obj` - 3D hand mesh (778 vertices, 1538 faces)
+- `hand_mesh_joints.obj` - 21 joint positions as 3D points
+- `hand_mesh_mask.png` - Hand/object segmentation mask
+
+### Step 5: Test the Server (Optional)
+
+```bash
+cd Network/JointLearningNeuralNetwork
+python test_server.py
+```
+
+### Pipeline Overview
+
+```
+Depth Image (240×320)
+       │
+       ▼
+┌─────────────────────────┐
+│  JointLearningNN        │  ← Neural network (inference_server.py)
+│  (port 8080)            │
+└───────────┬─────────────┘
+            │ 21 joints (u, v, z)
+            ▼
+┌─────────────────────────┐
+│  MANO Model Fitting     │  ← Python MANO (mano_model.py)
+│  (generate_hand_mesh.py)│
+└───────────┬─────────────┘
+            │
+            ▼
+     hand_mesh.obj         ← 3D hand mesh (778 vertices)
+```
+
+### LSTMPose (Optional)
+
+For temporal smoothing of hand poses across video frames:
+
+```bash
+cd Network/LSTMPose
+python inference_server.py --gpu 0
+```
+
+This runs on port **8081** and smooths joint predictions over time.
 
 ## Runtime
 
