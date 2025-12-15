@@ -1,6 +1,9 @@
 ## Content
 
 - <a href="#introduction">Introduction</a>
+- <a href="#method-overview">Method Overview</a>
+  - <a href="#inference-pipeline">Inference Pipeline</a>
+  - <a href="#key-features">Key Features</a>
 - <a href="#setup">Setup</a>
 - <a href="#linux-setup">Linux Setup (Python Only)</a>
   - <a href="#interactive-3d-viewer">Interactive 3D Viewer</a>
@@ -17,6 +20,145 @@ This is the code repository for papers:
 - *Physical Interaction: Reconstructing Hand-object Interactions with Physics* (https://dl.acm.org/doi/10.1145/3550469.3555421)
 
 <img src="teaser/livedemo1.gif" style="zoom: 80%;" /> <img src="teaser/livedemo2.gif" style="zoom: 80%;" /> 
+
+## Method Overview
+
+### Inference Pipeline
+
+The system reconstructs hand-object interactions in real-time from a single depth camera through the following stages:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                        COMPLETE INFERENCE PIPELINE                               │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+   ┌─────────────────┐
+   │  RealSense      │     Depth Image (320×240, 16-bit)
+   │  SR300 Camera   │─────────────────────────────────────────┐
+   └─────────────────┘                                         │
+                                                               ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  STAGE 0: NEURAL NETWORK INFERENCE                                    Port 8080 │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│   Depth Image ──▶ [JointLearningNeuralNetwork] ──▶ ┬─▶ 21 Joint Positions (u,v,z)
+│                   (Encoder-Decoder CNN)            ├─▶ Segmentation Mask
+│                                                    └─▶ Hand/Object Depth
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                         │
+                                         ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  STAGE I: KINEMATIC HAND-OBJECT MOTION TRACKING                                 │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│   ┌─────────────────────────┐        ┌─────────────────────────┐               │
+│   │     HAND TRACKING       │        │    OBJECT TRACKING      │               │
+│   │  ┌───────────────────┐  │        │  ┌───────────────────┐  │               │
+│   │  │ Sphere-Mesh Model │  │  ICP   │  │ TSDF Fusion       │  │               │
+│   │  │ • 28 DOF          │◀─┼────────┼─▶│ • No prior needed │  │               │
+│   │  │ • MANO conversion │  │        │  │ • Built on-the-fly│  │               │
+│   │  └───────────────────┘  │        │  └───────────────────┘  │               │
+│   └─────────────────────────┘        └─────────────────────────┘               │
+│              │                                    │                             │
+│              ▼                                    ▼                             │
+│      θ_kin (Hand Pose)                   W (Object Motion)                      │
+│      28 joint angles                     S (Object Shape)                       │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                         │
+          After object reconstructed     │     Calculate: mass, inertia,
+          (user presses 'T')             │     center of mass, velocity
+                                         ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  STAGE II: PHYSICS-BASED CONTACT STATUS OPTIMIZATION                            │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│   Key Insight: "Object motion must be explained by contact forces"              │
+│                                                                                 │
+│   ┌─────────────────────────────────────────────────────────────────────────┐  │
+│   │  For each fingertip i:                                                  │  │
+│   │  • Extract contact candidate (p_i, n_i, d_i)                            │  │
+│   │  • Optimize forces F_i using Newton-Euler equations                     │  │
+│   │  • Recover missing contacts via force analysis                          │  │
+│   │                                                                         │  │
+│   │  Minimize: E = E_force + E_moment + E_regularize + E_contact            │  │
+│   │                                                                         │  │
+│   │            ΣF_i + mg = ma    (force balance)                            │  │
+│   │            Στ_i = Iα         (moment balance)                           │  │
+│   └─────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                 │
+│   Output: Refined contacts {d̃_i}, Estimated forces {F_i}                       │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                         │
+                                         ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  STAGE III: CONFIDENCE-BASED SLIDE PREVENTION                                   │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│   ┌─────────────────────────────────────────────────────────────────────────┐  │
+│   │  For each fingertip:                                                    │  │
+│   │                                                                         │  │
+│   │  1. Compute kinematic confidence C_i (based on visible depth points)    │  │
+│   │  2. Check pressure F_N_i from Stage II                                  │  │
+│   │                                                                         │  │
+│   │     IF (low pressure)     → Allow sliding (trust kinematics)            │  │
+│   │     IF (high pressure + low confidence) → Prevent sliding (trust physics)│  │
+│   │     IF (high pressure + high confidence) → Smooth interpolation         │  │
+│   └─────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                 │
+│   Output: Final tip positions T_i^(s)                                          │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                         │
+                                         ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  FINAL OUTPUT                                                                   │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│   │  Hand Pose   │  │ Object Shape │  │Object Motion │  │Contact Forces│       │
+│   │  (28 DOF)    │  │ (TSDF→Mesh)  │  │  (6 DOF +    │  │  (per tip)   │       │
+│   │              │  │              │  │  non-rigid)  │  │              │       │
+│   └──────┬───────┘  └──────────────┘  └──────────────┘  └──────────────┘       │
+│          │                                                                      │
+│          ▼                                                                      │
+│   ┌──────────────────────────────────────┐                                     │
+│   │  MANO Hand Mesh (778 verts, 1538 faces)│                                    │
+│   └──────────────────────────────────────┘                                     │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  OPTIONAL: LSTMPose Temporal Smoothing                                Port 8081 │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│   Joint sequence ──▶ [LSTM Encoder-Decoder] ──▶ Smoothed joints (less jitter)   │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+TIMING (Real-time @ 25 FPS):
+├─ Neural Network:        ~5ms  (GPU)
+├─ Kinematic Tracking:   ~32ms  (GPU)
+└─ Physics Refinement:    ~8ms  (CPU)
+   Total:                ~40ms per frame
+```
+
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **No Object Template** | Objects are reconstructed on-the-fly using TSDF fusion - works with any arbitrary object |
+| **MANO Hand Model** | Uses the parametric MANO model (778 vertices) for realistic hand mesh |
+| **Physics-based Refinement** | Recovers occluded contacts by enforcing Newton-Euler dynamics |
+| **Real-time Performance** | Runs at ~25 FPS on dual NVIDIA Titan Xp GPUs |
+| **Single Depth Camera** | Only requires Intel RealSense SR300 (no multi-view setup) |
+
+### Models Used
+
+| Component | Model | Template Required? |
+|-----------|-------|-------------------|
+| **Hand** | MANO / Sphere-Mesh | ✅ Yes (parametric model with shape/pose parameters) |
+| **Object** | TSDF Voxel Grid | ❌ No (reconstructed from depth in real-time) |
 
 ## Setup
 
