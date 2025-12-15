@@ -3,6 +3,8 @@
 - <a href="#introduction">Introduction</a>
 - <a href="#setup">Setup</a>
 - <a href="#linux-setup">Linux Setup (Python Only)</a>
+  - <a href="#interactive-3d-viewer">Interactive 3D Viewer</a>
+  - <a href="#visualize-mesh-to-image">Visualize Mesh to Image</a>
 - <a href="#runtime">Runtime</a>
 - <a href="#hand calibration">Hand Calibration</a>
 - <a href="#bibtex">Bibtex</a>
@@ -221,6 +223,59 @@ python inference_server.py --gpu 0
 ```
 
 This runs on port **8081** and smooths joint predictions over time.
+
+### Interactive 3D Viewer
+
+A web-based interactive viewer for exploring 3D hand meshes:
+
+```bash
+cd Network/JointLearningNeuralNetwork
+
+# Start the viewer (default: port 5000)
+python interactive_viewer.py --port 5000
+
+# Or specify a custom mesh file
+python interactive_viewer.py --mesh hand_mesh.obj --joints hand_mesh_joints.obj
+```
+
+Then open **http://localhost:5000** in your browser.
+
+**Features:**
+| Control | Action |
+|---------|--------|
+| Left click + drag | Rotate the model |
+| Scroll wheel | Zoom in/out |
+| Right click + drag | Pan |
+| Reset View | Reset camera position |
+| Toggle Wireframe | Show mesh wireframe |
+| Toggle Joints | Show/hide 21 joint spheres |
+| Toggle Skeleton | Show/hide skeleton lines |
+| Auto Rotate | Enable auto-rotation |
+
+**Arguments:**
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--port` | Server port | `5000` |
+| `--mesh` | Input OBJ mesh file | `hand_from_depth.obj` |
+| `--joints` | Joint positions OBJ file | `hand_from_depth_joints.obj` |
+| `--host` | Host address | `0.0.0.0` |
+
+### Visualize Mesh to Image
+
+To render a mesh to a static image (without browser):
+
+```bash
+cd Network/JointLearningNeuralNetwork
+
+# Render to PNG
+python visualize_mesh.py --mesh hand_mesh.obj --output render.png
+
+# Multi-view render
+python visualize_mesh.py --mesh hand_mesh.obj --output multiview.png --multiview
+
+# Include joint positions
+python visualize_mesh.py --mesh hand_mesh.obj --joints hand_mesh_joints.obj --output render.png
+```
 
 ## Runtime
 

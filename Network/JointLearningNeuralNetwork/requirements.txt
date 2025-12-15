@@ -11,3 +11,6 @@ requests
 # For visualization (visualize_mesh.py)
 matplotlib
 trimesh
+
+# For interactive 3D viewer (interactive_viewer.py)
+flask
