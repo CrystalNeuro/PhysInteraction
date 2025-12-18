@@ -18,22 +18,29 @@ from network import *
 from utils import *
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--gpu', type=str, default='1', help='Gpu index to use. [Default: 1]')
+parser.add_argument('--gpu', type=str, default='1', help='Gpu index to use, use -1 for CPU. [Default: 1]')
 parser.add_argument('--port', type=int, default=8080, help='Server port. [Default: 8080]')
+parser.add_argument('--skip_init', action='store_true', help='Skip initial forward pass using org_depth_img_init.png')
 FLAGS = parser.parse_args()
 
 tf.logging.set_verbosity('INFO')
 
+# GPU selection with CPU fallback
 try:
-    req_gpu = int(FLAGS.gpu)
-    existing_gpus = GPUtil.getGPUs()
-    existing_gpus = [g.id for g in existing_gpus]
-    if req_gpu not in existing_gpus:
-        raise ValueError
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(req_gpu)
+    if FLAGS.gpu.strip() == '-1':
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+        tf.logging.info('Running on CPU (CUDA_VISIBLE_DEVICES="")')
+    else:
+        req_gpu = int(FLAGS.gpu)
+        existing_gpus = GPUtil.getGPUs()
+        existing_gpus = [g.id for g in existing_gpus]
+        if req_gpu not in existing_gpus:
+            raise ValueError
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(req_gpu)
+        tf.logging.info('Using GPU id %s', FLAGS.gpu)
 except ValueError:
-    tf.logging.error('Check your gpus parameter.')
-    exit(1)
+    tf.logging.warning('Requested GPU %s not available, falling back to CPU.', FLAGS.gpu)
+    os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 
 def tf_hmap_to_uv(hmap):
@@ -128,15 +135,18 @@ try:
     model_path = "model/JointLearningNN/150.ckpt"
     model = ModelUVZ_D(model_path)
 
-    depth_img = cv2.imread("./org_depth_img_init.png", cv2.IMREAD_UNCHANGED)
-    depth_img = np.asarray(depth_img).astype(np.float32)
-    hand_object_mask = np.uint8((depth_img > 100) * 255)
+    if not FLAGS.skip_init:
+        depth_img = cv2.imread("./org_depth_img_init.png", cv2.IMREAD_UNCHANGED)
+        depth_img = np.asarray(depth_img).astype(np.float32)
+        hand_object_mask = np.uint8((depth_img > 100) * 255)
 
-    z, uv, mask, z_combined, z_source = model.process(depth_img.copy())
+        z, uv, mask, z_combined, z_source = model.process(depth_img.copy())
 
 except ModuleNotFoundError:
     tf.logging.error('Model load error')
     exit(1)
+except Exception as e:
+    tf.logging.warning('Initial forward skipped or failed: %s', str(e))
 
 frame_id = 0
 

@@ -1,0 +1,17 @@
+{
+  "frames_processed": 1,
+  "successes": 1,
+  "validation_failures": 0,
+  "server_errors": 0,
+  "mean_fit_error": 228104.45332406275,
+  "median_fit_error": 228104.45332406275,
+  "min_fit_error": 228104.45332406275,
+  "max_fit_error": 228104.45332406275,
+  "camera_intrinsics": {
+    "fx": 475.0,
+    "fy": 475.0,
+    "cx": 160.0,
+    "cy": 120.0
+  },
+  "output_dir": "/hy-tmp/PhysInteraction-main/Network/JointLearningNeuralNetwork/test_output_improved"
+}
